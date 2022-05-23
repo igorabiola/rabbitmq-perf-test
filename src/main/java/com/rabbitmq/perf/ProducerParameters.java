@@ -19,6 +19,7 @@ import com.rabbitmq.client.Channel;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * @since 2.1.0
@@ -43,6 +44,16 @@ public class ProducerParameters {
     private int randomStartDelayInSeconds;
     private Recovery.RecoveryProcess recoveryProcess;
     private ValueIndicator<Float> rateIndicator;
+    private Supplier<String> routingKeyGenerator;
+
+    public Supplier<String> getRoutingKeyGenerator(){
+        return routingKeyGenerator;
+    }
+
+    public ProducerParameters setRoutingKeyGenerator( Supplier<String> generator ){
+        this.routingKeyGenerator = generator;
+        return this;
+    }
 
     public Channel getChannel() {
         return channel;

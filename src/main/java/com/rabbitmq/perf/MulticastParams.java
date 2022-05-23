@@ -498,8 +498,10 @@ public class MulticastParams {
 
         Recovery.RecoveryProcess recoveryProcess = setupRecoveryProcess(connection, topologyRecording);
 
+        
         final Producer producer = new Producer(new ProducerParameters()
             .setChannel(channel).setExchangeName(exchangeName).setId(this.topologyHandler.getRoutingKey())
+            .setRoutingKeyGenerator(new Producer.FixedRoutingKeyGenerator(this.topologyHandler.getPosibleRoutingKeys()))
             .setRandomRoutingKey(randomRoutingKey).setFlags(flags).setTxSize(producerTxSize)
             .setMsgLimit(producerMsgCount).setConfirm(confirm)
             .setConfirmTimeout(confirmTimeout).setMessageBodySource(messageBodySource).setTsp(tsp)
@@ -519,7 +521,8 @@ public class MulticastParams {
                                    Stats stats,
                                    ValueIndicator<Long> consumerLatenciesIndicator,
                                    MulticastSet.CompletionHandler completionHandler,
-                                   ExecutorService executorService) throws IOException {
+                                   ExecutorService executorService,
+                                   ExecutorService shuffleExecutorService) throws IOException {
         TopologyHandlerResult topologyHandlerResult = this.topologyHandler.configureQueuesForClient(connection);
         connection = topologyHandlerResult.connection;
         Channel channel = connection.createChannel(); //NOSONAR
@@ -715,6 +718,8 @@ public class MulticastParams {
          */
         void reset();
 
+        List<String> getPosibleRoutingKeys();
+
     }
 
     static class TopologyHandlerResult {
@@ -799,7 +804,7 @@ public class MulticastParams {
             }
 
             State firstState = states.get(0);
-            if (!params.predeclared || !exchangeExists(firstState.c, params.exchangeName)) {
+            if (!exchangeExists(firstState.c, params.exchangeName) && !params.predeclared) {
                 Utils.exchangeDeclare(firstState.ch, params.exchangeName, params.exchangeType);
                 firstState.topologyRecording.recordExchange(params.exchangeName, params.exchangeType);
             }
@@ -888,6 +893,11 @@ public class MulticastParams {
         }
 
         @Override
+        public List<String> getPosibleRoutingKeys(){
+            return queueNames;
+        }
+
+        @Override
         public TopologyHandlerResult configureQueuesForClient(Connection connection) throws IOException {
             Connection connectionToUse;
             if (this.params.isExclusive()) {
@@ -957,7 +967,16 @@ public class MulticastParams {
 
         @Override
         public String getRoutingKey() {
-            return this.routingKey == null ? this.getQueueNamesForClient().get(0) : this.routingKey;
+            return this.routingKey == null ? getIndexedRoutingKey() : this.routingKey;
+        }
+
+        @Override
+        public List<String> getPosibleRoutingKeys(){
+            return queues;
+        }
+
+        private String getIndexedRoutingKey(){
+            return queues.get(index % queues.size());
         }
 
         @Override
@@ -1003,7 +1022,19 @@ public class MulticastParams {
         }
 
         protected List<String> getQueueNamesForClient() {
-            return Collections.singletonList(queues.get(index % queues.size()));
+
+            int perconsumer = queues.size() / params.getConsumerCount();
+            List<String> list = new ArrayList<>(queues.subList(perconsumer * index, (perconsumer * index) + perconsumer));
+            //Collections.shuffle(list);
+            /*
+            .add(queues.get(index % queues.size()));
+            int i = (queues.size()-1) - index;
+            if(i >= 0){
+                list.add(queues.get(i));
+            }
+            */
+
+            return list;
         }
 
         @Override

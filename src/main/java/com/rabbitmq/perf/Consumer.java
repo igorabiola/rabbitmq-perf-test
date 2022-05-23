@@ -66,6 +66,7 @@ public class Consumer extends AgentBase implements Runnable {
     private final AtomicReference<List<String>> queueNames = new AtomicReference<>();
     private final AtomicLong queueNamesVersion = new AtomicLong(0);
     private final List<String> initialQueueNames; // to keep original names of server-generated queue names (after recovery)
+    private final List<String> queueNamesFull;
 
     private final ConsumerState state;
 
@@ -102,8 +103,10 @@ public class Consumer extends AgentBase implements Runnable {
         this.consumerArguments = parameters.getConsumerArguments();
         this.exitWhen          = parameters.getExitWhen();
 
-        this.queueNames.set(new ArrayList<>(parameters.getQueueNames()));
-        this.initialQueueNames = new ArrayList<>(parameters.getQueueNames());
+        this.queueNamesFull = new ArrayList<>(parameters.getQueueNames());
+        List<String> efectiveQueue = new ArrayList<>(this.queueNamesFull);
+        this.queueNames.set(new ArrayList<>(efectiveQueue));
+        this.initialQueueNames = new ArrayList<>(efectiveQueue);
 
         if(parameters.getConsumerLatenciesIndicator().isVariable()) {
             this.consumerLatency = new VariableConsumerLatency(parameters.getConsumerLatenciesIndicator());
@@ -154,6 +157,24 @@ public class Consumer extends AgentBase implements Runnable {
         } else {
             registerAsynchronousConsumer();
         }
+    }
+
+    public List<String> getQueueNames(){
+        return this.queueNames.get();
+    }
+
+    public void shiftQueues( String oldQ, String newQ ) throws Exception{
+        String consumerTag = consumerTagBranchMap.entrySet().stream().filter( e -> e.getValue().equals(oldQ) ).map(e -> e.getKey()).findFirst().orElse(null);
+        if(consumerTag != null){
+            this.channel.basicCancel(consumerTag);
+            consumerTagBranchMap.remove(consumerTag);
+            this.queueNames.get().remove(oldQ);
+            this.initialQueueNames.remove(oldQ);
+        }
+        this.queueNames.get().add(newQ);
+        this.initialQueueNames.add(newQ);
+        registerAsynchronousConsumer(newQ);
+
     }
 
     private void startBasicGetConsumer() {
@@ -210,7 +231,29 @@ public class Consumer extends AgentBase implements Runnable {
         });
     }
 
+
+    private void registerAsynchronousConsumer(String qName){
+        try {
+            if( q == null ){
+                q = new ConsumerImpl(channel);
+            }
+            String tag = channel.basicConsume(qName, autoAck, this.consumerArguments, q);
+            consumerTagBranchMap.put(tag, qName);
+            
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (ShutdownSignalException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private void registerAsynchronousConsumer() {
+
+        for (String qName : queueNames.get()) {
+            registerAsynchronousConsumer(qName);
+        }
+        
+        /*
         try {
             q = new ConsumerImpl(channel);
             for (String qName : queueNames.get()) {
@@ -222,7 +265,10 @@ public class Consumer extends AgentBase implements Runnable {
         } catch (ShutdownSignalException e) {
             throw new RuntimeException(e);
         }
+        */
     }
+
+
 
     private class ConsumerImpl extends DefaultConsumer {
 
@@ -248,7 +294,11 @@ public class Consumer extends AgentBase implements Runnable {
                 long messageTimestamp = timestampExtractor.apply(properties, body);
                 long diff_time = timestampProvider.getDifference(nowTimestamp, messageTimestamp);
 
-                stats.handleRecv(id.equals(envelope.getRoutingKey()) ? diff_time : 0L);
+                if(initialQueueNames.contains(envelope.getRoutingKey())){
+                    stats.handleRecv(diff_time);
+                }else{
+                    stats.handleRecv(id.equals(envelope.getRoutingKey()) ? diff_time : 0L);
+                }
 
                 if (consumerLatency.simulateLatency()) {
                     ackIfNecessary(envelope, currentMessageCount, ch);

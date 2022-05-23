@@ -186,6 +186,7 @@ abstract class Utils {
   static void exchangeDeclare(Channel channel, String exchange, String type) throws IOException {
     if ("".equals(exchange) || exchange.startsWith("amq.")) {
       LOGGER.info("Skipping creation of exchange {}", exchange);
+      return;
     }
     channel.exchangeDeclare(exchange, type);
   }

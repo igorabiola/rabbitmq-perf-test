@@ -24,11 +24,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
@@ -140,7 +142,11 @@ public class Producer extends AgentBase implements Runnable, ReturnListener,
                 this.routingKeyGenerator = () -> UUID.randomUUID().toString();
             }
         } else {
-            this.routingKeyGenerator = () -> this.id;
+            if(parameters.getRoutingKeyGenerator() != null){
+                this.routingKeyGenerator = parameters.getRoutingKeyGenerator();
+            }else{
+                this.routingKeyGenerator = () -> this.id;
+            }
         }
         this.randomStartDelay = parameters.getRandomStartDelayInSeconds();
 
@@ -658,4 +664,25 @@ public class Producer extends AgentBase implements Runnable, ReturnListener,
             return keys[count++ % keys.length];
         }
     }
+
+    static class FixedRoutingKeyGenerator implements Supplier<String> {
+
+        private final List<String> keys;
+        private int count = 0;
+
+        public FixedRoutingKeyGenerator( List<String> posibleKeys ){
+            this.keys = new ArrayList<>(posibleKeys);
+            //Collections.shuffle(this.keys);
+        }
+
+        @Override
+        public String get() {
+            if (count == keys.size()) {
+                count = 0;
+            }
+            return keys.get(count++ % keys.size());
+        }
+
+    }
+
 }

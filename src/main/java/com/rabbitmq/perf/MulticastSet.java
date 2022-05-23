@@ -233,6 +233,36 @@ public class MulticastSet {
             startConsumers(consumerRunnables);
             startProducers(producerStates);
 
+            ExecutorService executorServiceShuffleQueues = this.threadingHandler.executorService(
+                    "perf-test-shuffle-", 1
+            );
+
+            executorServiceShuffleQueues.submit( () -> {
+                while (!Thread.interrupted()) {
+                    try {
+                        Thread.sleep(15000L);
+                        for (int i = 0; i < consumerRunnables.length; i+=2){
+                            if( i+1 >= consumerRunnables.length ){
+                                break;
+                            }
+                            Consumer c1 = consumerRunnables[i];
+                            Consumer c2 = consumerRunnables[i+1];
+
+                            String q1 = c1.getQueueNames().stream().findAny().orElseGet(null);
+                            String q2 = c2.getQueueNames().stream().findAny().orElse(null);
+                            if( q1 != null && q2 != null ){
+                                c1.shiftQueues(q1, q2);
+                                c2.shiftQueues(q2, q1);
+                            }
+                            
+                        }
+                        
+                    } catch (Exception e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            });
+
             if (params.getExitWhen() == EXIT_WHEN.EMPTY || params.getExitWhen() == EXIT_WHEN.IDLE) {
                 ScheduledExecutorService scheduledExecutorService =
                     this.threadingHandler.scheduledExecutorService(
@@ -384,13 +414,15 @@ public class MulticastSet {
             ExecutorService executorService = consumersExecutorsFactory.apply(i);
             factory.setSharedExecutor(executorService);
 
+            ExecutorService suffleExecutorService = this.threadingHandler.scheduledExecutorService("suffleExecutorService", 5);
+
             Connection consumerConnection = createConnection("perf-test-consumer-" + i);
             consumerConnections[i] = consumerConnection;
             for (int j = 0; j < params.getConsumerChannelCount(); j++) {
                 if (announceStartup) {
                     System.out.println("id: " + testID + ", starting consumer #" + i + ", channel #" + j);
                 }
-                Consumer consumer = params.createConsumer(consumerConnection, stats, this.consumerLatencyIndicator, this.completionHandler, executorService);
+                Consumer consumer = params.createConsumer(consumerConnection, stats, this.consumerLatencyIndicator, this.completionHandler, executorService, suffleExecutorService);
                 consumerRunnables[(i * params.getConsumerChannelCount()) + j] = consumer;
             }
         }
